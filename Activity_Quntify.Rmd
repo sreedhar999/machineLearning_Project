@@ -1,0 +1,208 @@
+---
+title: "Qualitative Activity Recognition of Weight Lifting Exercises"
+author: "Sreedhar Ravinutala"
+date: "June 11, 2016"
+output: html_document
+---
+
+## R Markdown
+SYNOPSIS
+
+Given both training and test data from the following study:
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+Instructions
+
+One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants.
+
+The goal of this project is to predict the manner in which they did the exercise.
+
+can the appropriate activity quality (class A-E) be predicted?
+
+Load the appropriate packages and set the seed for reproduceable results.
+
+```{r }
+library(AppliedPredictiveModeling)
+library(caret)
+library(rattle)
+library(rpart.plot)
+library(randomForest)
+```
+
+
+INPUT DATA
+
+The first step is to import the data and to verify that the training data and the test data are identical.
+
+```{r }
+
+# Download data.
+
+file_dest_training <- "pml-training.csv"
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",destfile=file_dest_training,method="libcurl")
+
+
+file_dest_testing <- "pml-testing.csv"
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv",destfile=file_dest_testing,method="libcurl")
+
+# Import the data treating empty values as NA.
+df_training <- read.csv(file_dest_training, na.strings=c("NA",""), header=TRUE)
+colnames_train <- colnames(df_training)
+df_testing <- read.csv(file_dest_testing, na.strings=c("NA",""), header=TRUE)
+colnames_test <- colnames(df_testing)
+
+# Verify that the column names (excluding classe and problem_id) are identical in the training and test set.
+all.equal(colnames_train[1:length(colnames_train)-1], colnames_test[1:length(colnames_train)-1])
+
+
+```
+
+Eliminate unecessary Columns
+
+Eeliminate both NA columns and other extraneous columns.
+```{r }
+# Count the number of non-NAs in each col.
+nonNAs <- function(x) {
+    as.vector(apply(x, 2, function(x) length(which(!is.na(x)))))
+}
+
+# Build vector of missing data or NA columns to drop.
+colcnts <- nonNAs(df_training)
+drops <- c()
+for (cnt in 1:length(colcnts)) {
+    if (colcnts[cnt] < nrow(df_training)) {
+        drops <- c(drops, colnames_train[cnt])
+    }
+}
+
+# Drop NA data and the first 7 columns as they're unnecessary for predicting.
+df_training <- df_training[,!(names(df_training) %in% drops)]
+df_training <- df_training[,8:length(colnames(df_training))]
+
+df_testing <- df_testing[,!(names(df_testing) %in% drops)]
+df_testing <- df_testing[,8:length(colnames(df_testing))]
+
+# Show remaining columns.
+colnames(df_training)
+colnames(df_testing)
+```
+
+
+Check for covariates that have virtually no variablility.
+```{r }
+
+nsv <- nearZeroVar(df_training, saveMetrics=TRUE)
+nsv
+
+
+```
+
+Given that all of the near zero variance variables (nsv) are FALSE, there's no need to eliminate any covariates due to lack of variablility.
+
+split df_training into a training set (comprising 60% of the entries) and a testing set (comprising 40% of the entries).
+
+```{r }
+set.seed(999)
+inTrain <- createDataPartition(y=df_training$classe, p=0.6, list=FALSE)
+df_training1 <- df_training[inTrain,]
+df_testing1 <- df_training[-inTrain,]
+
+
+
+```
+
+Using ML algorithms for prediction And Decision Tree
+
+```{r }
+modFitA1 <- rpart(classe ~ ., data=df_training1, method="class")
+
+#Note: to view the decision tree with fancy run this command:
+fancyRpartPlot(modFitA1)  
+```
+Predicting And Using confusion Matrix to test results:
+```{r }
+
+predictionsA1 <- predict(modFitA1, df_testing1, type = "class")
+
+confusionMatrix(predictionsA1, df_testing1$classe)
+
+```
+#Overall Statistics
+                                          
+#               Accuracy : 0.7158          
+#                 95% CI : (0.7057, 0.7257)
+#    No Information Rate : 0.2845          
+#    P-Value [Acc > NIR] : < 2.2e-16       
+                                          
+#                  Kappa : 0.6379          
+#Mcnemar's Test P-Value : < 2.2e-16   
+
+Using ML algorithms for prediction And Decision Tree  (With preprocessing)
+
+
+```{r }
+
+# Train on training set  both preprocessing and cross validation.
+set.seed(999)
+modFitA2 <- train(df_training1$classe ~ .,  preProcess=c("center", "scale"), trControl=trainControl(method = "cv", number = 4), data = df_training1, method="rpart")
+print(modFitA2, digits=3)
+```
+
+
+It did not improve the accuracy .
+
+#  cp      Accuracy  Kappa 
+#  0.0351  0.503     0.3500
+#Accuracy was used to select the optimal model using  the largest value.
+#The final value used for the model was cp = 0.0351. 
+
+
+Using ML algorithms for prediction: Random Forests
+
+```{r }
+modFitB1 <- randomForest(classe ~. , data=df_training1)
+#Predicting in-sample error:
+predictionsB1 <- predict(modFitB1, df_testing1, type = "class")
+
+#confusion Matrix to test results:
+confusionMatrix(predictionsB1, df_testing1$classe)
+
+```
+
+#Random Forests yielded better Results.
+
+#Overall Statistics
+                                         
+#               Accuracy : 0.9934         
+#                 95% CI : (0.9913, 0.995)
+#    No Information Rate : 0.2845         
+#    P-Value [Acc > NIR] : < 2.2e-16      
+                                         
+#                  Kappa : 0.9916         
+# Mcnemar's Test P-Value : NA             
+
+
+```{r }
+set.seed(999)
+modFitB2 <- train(df_training1$classe ~ ., method="rf", preProcess=c("center", "scale"), trControl=trainControl(method = "cv", number = 4), data=df_training1)
+print(modFitB2, digits=3)
+
+```
+
+# mtry  Accuracy  Kappa
+#   2    0.988     0.984
+#  27    0.987     0.983
+#  52    0.979     0.973
+
+#Accuracy was used to select the optimal model using  the largest value.
+#The final value used for the model was mtry = 2. 
+
+Accuracy is best with Rain forest method will be used to predict 20 testing values .
+
+# Run against 20 testing set provided .
+```{r }
+print(predict(modFitB1, newdata=df_testing))
+
+
+```
